@@ -6,7 +6,6 @@ import { StatusCodes } from "http-status-codes";
 export const isAuthenticated = (req, res, next) => {
   const token =
     req.cookies?.accessToken || req.headers?.authorization?.split(" ")[1];
-  console.log(token);
   if (!token)
     return next(
       new ApiError(StatusCodes.UNAUTHORIZED, "You are not authenticated"),
