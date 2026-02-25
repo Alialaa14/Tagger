@@ -21,6 +21,7 @@ const couponSchema = new Schema(
     usedBy: {
       type: Schema.Types.ObjectId,
       ref: "user",
+      default: null,
     },
   },
   { timeStamps: true },

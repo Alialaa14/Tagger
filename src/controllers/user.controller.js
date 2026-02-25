@@ -12,6 +12,7 @@ import jwt from "jsonwebtoken";
 import { customAlphabet } from "nanoid";
 import { sendEmail } from "../utils/sendEmail.js";
 import { ENV } from "../utils/ENV.js";
+import Cart from "../models/cart.model.js";
 const generateAccessAndRefreshToken = async (userId) => {
   try {
     const user = await User.findById(userId);
@@ -67,6 +68,19 @@ export const register = asyncHandler(async (req, res, next) => {
     role,
     logo,
   });
+  if (!newUser)
+    return next(
+      new ApiError(StatusCodes.BAD_REQUEST, "Error While Creating User"),
+    );
+
+  // create Cart if user is Retail Custom (role==user)
+  if (role === "user") {
+    const cart = await Cart.create({ owner: newUser._id });
+    if (!cart)
+      return next(
+        new ApiError(StatusCodes.BAD_REQUEST, "Error While Creating Cart"),
+      );
+  }
   return res
     .status(StatusCodes.CREATED)
     .json(

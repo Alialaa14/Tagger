@@ -5,6 +5,8 @@ import { StatusCodes } from "http-status-codes";
 import userRouter from "./src/routers/user.router.js";
 import categoryRouter from "./src/routers/category.router.js";
 import productRouter from "./src/routers/product.router.js";
+import cartRouter from "./src/routers/cart.router.js";
+import couponRouter from "./src/routers/coupon.router.js";
 import cookieParser from "cookie-parser";
 const app = express();
 app.use(express.json());
@@ -13,6 +15,8 @@ app.use(cookieParser());
 app.use("/api/v1/auth", userRouter);
 app.use("/api/v1/category", categoryRouter);
 app.use("/api/v1/product", productRouter);
+app.use("/api/v1/cart", cartRouter);
+app.use("/api/v1/coupon", couponRouter);
 
 app.use((req, res, next) => {
   return res.status(StatusCodes.NOT_FOUND).json({
