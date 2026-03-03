@@ -12,6 +12,7 @@ import jwt from "jsonwebtoken";
 import { customAlphabet } from "nanoid";
 import { sendEmail } from "../utils/sendEmail.js";
 import { ENV } from "../utils/ENV.js";
+import Cart from "../models/cart.model.js";
 const generateAccessAndRefreshToken = async (userId) => {
   try {
     const user = await User.findById(userId);
@@ -43,7 +44,7 @@ export const register = asyncHandler(async (req, res, next) => {
     return next(new ApiError(StatusCodes.CONFLICT, "User already exists"));
 
   // Upload Logo to Cloudinary if exists
-  let logo = {};
+  let logo = null;
   if (req?.file?.path) {
     const result = await uploadToCloudinary(
       req.file.path,
@@ -67,6 +68,19 @@ export const register = asyncHandler(async (req, res, next) => {
     role,
     logo,
   });
+  if (!newUser)
+    return next(
+      new ApiError(StatusCodes.BAD_REQUEST, "Error While Creating User"),
+    );
+
+  // create Cart if user is Retail Custom (role==user)
+  if (role === "user") {
+    const cart = await Cart.create({ owner: newUser._id });
+    if (!cart)
+      return next(
+        new ApiError(StatusCodes.BAD_REQUEST, "Error While Creating Cart"),
+      );
+  }
   return res
     .status(StatusCodes.CREATED)
     .json(
@@ -89,7 +103,15 @@ export const login = asyncHandler(async (req, res, next) => {
   const { accessToken, refreshToken } = await generateAccessAndRefreshToken(
     user._id,
   );
-
+  const uptdatedUser = await User.findByIdAndUpdate(
+    user._id,
+    { isOnline: true },
+    { new: true },
+  );
+  if (!uptdatedUser)
+    return next(
+      new ApiError(StatusCodes.BAD_REQUEST, "Error While Logging In User"),
+    );
   return res
     .status(StatusCodes.OK)
     .cookie("accessToken", accessToken, {
@@ -114,7 +136,7 @@ export const logout = asyncHandler(async (req, res, next) => {
 
   const updatedUser = await User.findByIdAndUpdate(
     req.user.id,
-    { refreshToken: null },
+    { refreshToken: null, isOnline: false },
     { new: true },
   );
 
@@ -145,8 +167,8 @@ export const logout = asyncHandler(async (req, res, next) => {
 export const updateProfile = asyncHandler(async (req, res, next) => {
   const { username, shopName, phoneNumber, city, governorate, address } =
     req.body;
-
-  const user = await User.findById(req.user.id);
+  const id = req.query.id;
+  const user = await User.findById(id ? id : req.user.id);
 
   if (!user) return next(new ApiError(StatusCodes.NOT_FOUND, "User not found"));
 
@@ -168,7 +190,7 @@ export const updateProfile = asyncHandler(async (req, res, next) => {
   }
 
   const updatedUser = await User.findByIdAndUpdate(
-    req.user.id,
+    id ? id : req.user.id,
     {
       username,
       shopName,
@@ -340,10 +362,10 @@ export const getAllUsers = asyncHandler(async (req, res, next) => {
 
 export const getUser = asyncHandler(async (req, res, next) => {
   const { id } = req.params;
-  const user = await User.findById(id)
-    .populate("ordersAccepted", "id isAccepted totalPrice totalQuantity")
-    .populate("ordersRejected", "id isAccepted totalPrice totalQuantity")
-    .populate("favorites", "id name image");
+  const user = await User.findById(id);
+  // .populate("ordersAccepted", "id isAccepted totalPrice totalQuantity")
+  // .populate("ordersRejected", "id isAccepted totalPrice totalQuantity")
+  // .populate("favorites", "id name image");
 
   if (!user)
     return next(new ApiError(StatusCodes.BAD_REQUEST, "User Not Found"));
@@ -379,4 +401,38 @@ export const createAdminUser = asyncHandler(async (req, res, next) => {
         "Admin Created Successfully",
       ),
     );
+});
+
+export const getUsersOnline = asyncHandler(async (req, res, next) => {
+  const users = await User.find({ isOnline: true });
+  return res
+    .status(StatusCodes.OK)
+    .json(new ApiResponse(StatusCodes.OK, users, "Users Fetched Successfully"));
+});
+
+export const getAuthenticatedUser = asyncHandler(async (req, res, next) => {
+  const token = req.user.id;
+  const user = await User.findById(token).select(
+    "username shopName phoneNumber role isOnline address city governorate logo ",
+  );
+  if (!user)
+    return next(
+      new ApiError(
+        StatusCodes.BAD_REQUEST,
+        "User Not Found Please login Again",
+      ),
+    );
+  return res
+    .status(StatusCodes.OK)
+    .json(new ApiResponse(StatusCodes.OK, user, "User Fetched Successfully"));
+});
+
+export const deleteUser = asyncHandler(async (req, res, next) => {
+  const { id } = req.params;
+  const user = await User.findByIdAndDelete(id);
+  if (!user)
+    return next(new ApiError(StatusCodes.BAD_REQUEST, "User Not Found"));
+  return res
+    .status(StatusCodes.OK)
+    .json(new ApiResponse(StatusCodes.OK, null, "User Deleted Successfully"));
 });

@@ -86,19 +86,19 @@ const userSchema = new Schema(
       type: Number,
       default: 0,
     },
-    ordersAccepted: [
-      {
-        type: Schema.Types.ObjectId,
-        ref: "order",
-      },
-    ],
+    // ordersAccepted: [
+    //   {
+    //     type: Schema.Types.ObjectId,
+    //     ref: "order",
+    //   },
+    // ],
 
-    ordersRejected: [
-      {
-        type: Schema.Types.ObjectId,
-        ref: "order",
-      },
-    ],
+    // ordersRejected: [
+    //   {
+    //     type: Schema.Types.ObjectId,
+    //     ref: "order",
+    //   },
+    // ],
 
     favorites: [
       {
@@ -114,6 +114,10 @@ const userSchema = new Schema(
     },
     otpExpiry: {
       type: Date,
+    },
+    isOnline: {
+      type: Boolean,
+      default: false,
     },
   },
   { timestamps: true },

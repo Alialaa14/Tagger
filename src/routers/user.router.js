@@ -4,9 +4,12 @@ import { isAuthorized } from "../middlewares/isAuthorized.js";
 import upload from "../utils/multer.js";
 import {
   createAdminUser,
+  deleteUser,
   forgetPassword,
   getAllUsers,
+  getAuthenticatedUser,
   getUser,
+  getUsersOnline,
   login,
   logout,
   register,
@@ -39,15 +42,15 @@ router
   .route("/update-profile")
   .patch(
     isAuthenticated,
-    isAuthorized("user", "trader", "admin"),
     upload.single("logo"),
     updateProfileValidator,
     updateProfile,
   );
 
 router
-  .route("/get-user/:id")
-  .get(isAuthenticated, isAuthorized("admin"), getUserValidator, getUser);
+  .route("/user/:id")
+  .get(isAuthenticated, isAuthorized("admin"), getUserValidator, getUser)
+  .delete(isAuthenticated, isAuthorized("admin"), getUserValidator, deleteUser);
 router
   .route("/get-users")
   .get(isAuthenticated, isAuthorized("admin"), getAllUsers);
@@ -59,4 +62,9 @@ router
     adminUserValidator,
     createAdminUser,
   );
+router
+  .route("/users-online")
+  .get(isAuthenticated, isAuthorized("admin"), getUsersOnline);
+
+router.route("/me").get(isAuthenticated, getAuthenticatedUser);
 export default router;
