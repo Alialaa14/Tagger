@@ -40,6 +40,7 @@ export const createProduct = asyncHandler(async (req, res, next) => {
     image: imageUpload,
   });
 
+  console.log({ ...newProduct });
   if (!newProduct)
     return next(new ApiError(StatusCodes.BAD_REQUEST, "Product Not Created"));
   return res
@@ -71,7 +72,7 @@ export const updateProduct = asyncHandler(async (req, res, next) => {
   if (!product) return next(new ApiError(StatusCodes.NOT_FOUND));
 
   // upload to cloudinary
-  let imageUpload = {};
+  let imageUpload = null;
   if (req?.file?.path) {
     // Delete old Image from Cloudinary
     if (product.image?.public_id) {
@@ -142,6 +143,8 @@ export const getAllProducts = asyncHandler(async (req, res, next) => {
     page = 1,
     limit = 10,
     search,
+    minPrice = 0,
+    maxPrice = 1000,
     category,
     sortBy = "name",
     sortOrder = "asc",
@@ -160,13 +163,27 @@ export const getAllProducts = asyncHandler(async (req, res, next) => {
   if (category) {
     query.category = category;
   }
+  if (minPrice || maxPrice) {
+    query.price = { $gte: Number(minPrice), $lte: Number(maxPrice) };
+  }
   const products = await Product.find(query)
     .sort({ [sortBy]: sortOrder })
     .skip(skip)
-    .limit(Number(limit));
+    .limit(Number(limit))
+    .populate("category", "name");
+  if (!products || products.length === 0) {
+    return next(new ApiError(StatusCodes.NOT_FOUND, "Products Not Found"));
+  }
+  const productCount = await Product.countDocuments(query);
   return res
     .status(StatusCodes.OK)
-    .json(new ApiResponse(StatusCodes.OK, products, "Products Fetched"));
+    .json(
+      new ApiResponse(
+        StatusCodes.OK,
+        { products, count: productCount },
+        "Products Fetched",
+      ),
+    );
 });
 
 //@Desc Get Product By Id

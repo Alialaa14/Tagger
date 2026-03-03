@@ -21,7 +21,7 @@ export const createCategory = asyncHandler(async (req, res, next) => {
     return next(new ApiError(StatusCodes.CONFLICT, "Category Already Exists"));
 
   // Upload To Cloudinary
-  let imageUpload = {};
+  let imageUpload = null;
   if (req?.file?.path) {
     const result = await uploadToCloudinary(req.file.path, "Tagger/categories");
     imageUpload = {
@@ -60,7 +60,7 @@ export const updateCategory = asyncHandler(async (req, res, next) => {
     return next(new ApiError(StatusCodes.NOT_FOUND, "Category Not Found"));
 
   // Upload To Cloudinary
-  let imageUpload = {};
+  let imageUpload = null;
   if (req?.file?.path) {
     // Delete old Image from Cloudinary
     if (category.image.public_id) {
