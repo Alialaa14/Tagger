@@ -19,7 +19,7 @@ const router = Router();
 
 router
   .route("/")
-  .get(isAuthenticated, isAuthorized("user", "admin"), getAllCategories)
+  .get(getAllCategories)
   .post(
     isAuthenticated,
     isAuthorized("admin"),
@@ -30,12 +30,7 @@ router
 
 router
   .route("/:id")
-  .get(
-    isAuthenticated,
-    isAuthorized("user", "admin"),
-    getCategoryValidator,
-    getCategoryById,
-  )
+  .get(getCategoryValidator, getCategoryById)
   .patch(
     isAuthenticated,
     isAuthorized("admin"),

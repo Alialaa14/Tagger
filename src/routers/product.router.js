@@ -16,15 +16,35 @@ import {
   getProductValidator,
   getProductsValidator,
 } from "../validators/product.validator.js";
+
 const router = Router();
+
+// ─────────────────────────────────────────────────────────────
+// CATALOG  —  authenticated browse for traders and users
+//
+// Traders  → pick a product → POST /api/trader-products/my
+// Users    → pick a product → POST /api/inventory/platform
+//
+// GET /api/products/catalog?search=&page=1&limit=10&category=&minPrice=&maxPrice=
+//
+// Must be defined BEFORE /:id so "catalog" is not treated as a Mongo id
+// ─────────────────────────────────────────────────────────────
+router.get(
+  "/catalog",
+  isAuthenticated,
+  isAuthorized("trader", "user", "admin"),
+  getProductsValidator,
+  getAllProducts,
+);
+
+// ─────────────────────────────────────────────────────────────
+// PUBLIC LISTING
+// GET  /api/products          — browse all products (no auth required)
+// POST /api/products          — admin creates a product
+// ─────────────────────────────────────────────────────────────
 router
   .route("/")
-  .get(
-    isAuthenticated,
-    isAuthorized("user", "admin"),
-    getProductsValidator,
-    getAllProducts,
-  )
+  .get(getProductsValidator, getAllProducts)
   .post(
     isAuthenticated,
     isAuthorized("admin"),
@@ -33,14 +53,15 @@ router
     createProduct,
   );
 
+// ─────────────────────────────────────────────────────────────
+// SINGLE PRODUCT
+// GET    /api/products/:id    — public
+// PATCH  /api/products/:id   — admin only
+// DELETE /api/products/:id   — admin only
+// ─────────────────────────────────────────────────────────────
 router
   .route("/:id")
-  .get(
-    isAuthenticated,
-    isAuthorized("user", "admin"),
-    getProductValidator,
-    getProduct,
-  )
+  .get(getProductValidator, getProduct)
   .patch(
     isAuthenticated,
     isAuthorized("admin"),
@@ -54,4 +75,5 @@ router
     deleteProductValidator,
     deleteProduct,
   );
+
 export default router;

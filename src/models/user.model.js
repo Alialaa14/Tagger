@@ -86,19 +86,19 @@ const userSchema = new Schema(
       type: Number,
       default: 0,
     },
-    // ordersAccepted: [
-    //   {
-    //     type: Schema.Types.ObjectId,
-    //     ref: "order",
-    //   },
-    // ],
+    ordersAccepted: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: "order",
+      },
+    ],
 
-    // ordersRejected: [
-    //   {
-    //     type: Schema.Types.ObjectId,
-    //     ref: "order",
-    //   },
-    // ],
+    ordersRejected: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: "order",
+      },
+    ],
 
     favorites: [
       {
