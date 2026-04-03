@@ -37,7 +37,7 @@ const cartSchema = new Schema(
       ref: "coupon",
     },
   },
-  { timeStamps: true },
+  { timestamps: true },
 );
 
 const Cart = model("cart", cartSchema);

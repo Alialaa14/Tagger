@@ -35,16 +35,6 @@ const productSchema = new Schema(
       type: Number,
       required: [true, "Price is required"],
     },
-    discount: [
-      {
-        quantity: {
-          type: Number,
-        },
-        discountValue: {
-          type: Number,
-        },
-      },
-    ],
   },
   { timeStamps: true },
 );

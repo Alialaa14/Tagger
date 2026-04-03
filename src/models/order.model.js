@@ -10,7 +10,7 @@ const orderSchema = new Schema(
     traderId: {
       type: Schema.Types.ObjectId,
       ref: "user",
-      required: [true, "Trader Id is required"],
+      default: null,
     },
     products: [
       {
@@ -29,33 +29,17 @@ const orderSchema = new Schema(
         },
       },
     ],
-    isPaid: {
-      type: Boolean,
-      default: false,
-    },
-    isAccepted: {
-      type: Boolean,
-      default: false,
-    },
-    isRejected: {
-      type: Boolean,
-      default: false,
-    },
-    isDelivered: {
-      type: Boolean,
-      default: false,
-    },
-    isPacked: {
-      type: Boolean,
-      default: false,
-    },
-    isCancelled: {
-      type: Boolean,
-      default: false,
-    },
-    isReturned: {
-      type: Boolean,
-      default: false,
+    status: {
+      type: String,
+      enum: [
+        "pending",
+        "delivered",
+        "cancelled",
+        "accepted",
+        "rejected",
+        "shipped",
+      ],
+      default: "pending",
     },
     totalPrice: {
       type: Number,
@@ -76,11 +60,15 @@ const orderSchema = new Schema(
     },
     paymentMethod: {
       type: String,
-      enum: ["Cash", "visa", "online"],
-      required: [true, "Payment Method is required"],
+      default: "Cash",
+    },
+    coupon: {
+      type: Schema.Types.ObjectId,
+      ref: "coupon",
+      default: null,
     },
   },
-  { timeStamps: true },
+  { timestamps: true },
 );
 
 const Order = model("order", orderSchema);

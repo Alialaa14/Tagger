@@ -10,69 +10,65 @@ import { StatusCodes } from "http-status-codes";
 // @Route POST /api/v1/cart
 // @Access Private
 export const addToCart = asyncHandler(async (req, res, next) => {
-  const { product, quantity } = req.body;
+  const { productId, quantity = 1 } = req.body;
 
-  const productExists = await Product.findById(product);
+  const productExists = await Product.findById(productId);
+  const existingCart = await Cart.findOne({ owner: req.user.id }).populate(
+    "products.product",
+    "name price image",
+  );
   if (!productExists)
     return next(new ApiError(StatusCodes.NOT_FOUND, "Product Not Found"));
 
-  const cart = await Cart.findOne({ owner: req.user.id });
-  if (!cart) return next(new ApiError(StatusCodes.NOT_FOUND, "Cart Not Found"));
+  // ✅ Create cart if it doesn't exist yet
+  let cart =
+    existingCart ?? (await Cart.create({ owner: req.user.id, products: [] }));
 
-  // check if the product is already in the cart
-  const index =
-    cart.products.length > 0
-      ? cart.products.map((item, index) => {
-          if (item.product.toString() == product.toString()) return index;
-        })
-      : -1;
+  // ✅ item.product holds the ObjectId — not item.id
+  // ✅ Arrow function uses implicit return (no curly braces)
+  const index = cart.products.findIndex(
+    (item) => item.product.id.toString() === productId.toString(),
+  );
 
   if (index !== -1) {
     cart.products[index].quantity += quantity;
   } else {
-    const cartItem = {
-      product: productExists._id,
-      quantity,
-    };
-    cart.products.push(cartItem);
+    cart.products.push({ product: productExists._id, quantity });
   }
+
+  // ✅ Calculate raw total first using item.product.price
+  const rawTotal = cart.products.reduce((total, item) => {
+    return total + item.quantity * productExists.price;
+  }, 0);
+
+  // ✅ Discount is now applied against the freshly computed rawTotal
+  let discount = 0;
+  if (cart.coupon) {
+    const coupon = await Coupon.findById(cart.coupon);
+    if (coupon) discount = rawTotal * (coupon.discount / 100);
+  }
+
+  cart.totalPrice = rawTotal - discount;
+  cart.totalQuantity = cart.products.reduce((total, item) => {
+    return total + item.quantity;
+  }, 0);
 
   const updatedCart = await cart.save();
   if (!updatedCart)
     return next(new ApiError(StatusCodes.BAD_REQUEST, "Cart Not Updated"));
 
-  // Check if Cart has Coupon and Apply it
-  let discount = 0;
-  if (cart.coupon) {
-    const coupon = await Coupon.findById(cart.coupon);
-    discount = cart.totalPrice * coupon.discount;
-  }
-
-  // Calculate Cart Total Price and Quantity
-  const totalPrice =
-    cart.products.reduce((total, product) => {
-      return total + product.quantity * productExists.price;
-    }, 0) - discount;
-  const totalQuantity = cart.products.reduce((total, product) => {
-    return total + product.quantity;
-  }, 0);
-
-  cart.totalPrice = totalPrice;
-  cart.totalQuantity = totalQuantity;
-
-  await cart.save();
-
-  return res
-    .status(StatusCodes.OK)
-    .json(
-      new ApiResponse(
-        StatusCodes.OK,
-        { updatedCart, totalPrice, totalQuantity },
-        "Cart Updated",
-      ),
-    );
+  return res.status(StatusCodes.OK).json(
+    new ApiResponse(
+      StatusCodes.OK,
+      {
+        cart: updatedCart,
+        totalPrice: cart.totalPrice,
+        totalQuantity: cart.totalQuantity,
+      },
+      "Product Added To Cart Successfully",
+    ),
+  );
 });
-
 // @Desc Remove From Cart
 // @Route DELETE /api/v1/cart/?productId
 // @Access Private
@@ -197,12 +193,14 @@ export const getCart = asyncHandler(async (req, res, next) => {
 
   let cart = null;
   if (userId) {
-    cart = await Cart.findOne({ owner: userId }).populate(
-      "owner",
-      "username shopName",
-    );
+    cart = await Cart.findOne({ owner: userId })
+      .populate("owner", "username shopName")
+      .populate("products.product", "name price image");
   } else {
-    cart = await Cart.findOne({ owner: req.user.id });
+    cart = await Cart.findOne({ owner: req.user.id }).populate(
+      "products.product",
+      "name price image",
+    );
   }
 
   if (!cart) return next(new ApiError(StatusCodes.NOT_FOUND, "Cart Not Found"));
@@ -233,8 +231,6 @@ export const clearCart = asyncHandler(async (req, res, next) => {
     {
       owner: req.user.id,
       products: { $ne: [] },
-      coupon: { $ne: null },
-      note: { $ne: "" },
     },
     {
       $set: {
