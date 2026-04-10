@@ -30,7 +30,7 @@ const categorySchema = new Schema(
       },
     },
   },
-  { timeStamps: true },
+  {timestamps:true },
 );
 
 const Category = model("category", categorySchema);

@@ -8,6 +8,7 @@ export const connectDB = async () => {
       "Connected to the database successfully with host-",
       mongoose.connection.host,
     );
+   
   } catch (error) {
     console.log("Error connecting to the database:", error.message);
     process.exit(1); // Exit the process with an error code

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { isAuthenticated } from "../middlewares/isAuthenticated.js";
 import { isAuthorized } from "../middlewares/isAuthorized.js";
+import { authLimiter } from "../middlewares/security.js";
 import upload from "../utils/multer.js";
 import {
   createAdminUser,
@@ -32,12 +33,12 @@ import {
 const router = Router();
 router
   .route("/register")
-  .post(upload.single("logo"), registerValidator, register);
-router.route("/login").post(loginValidator, login);
+  .post(authLimiter, upload.single("logo"), registerValidator, register);
+router.route("/login").post(authLimiter, loginValidator, login);
 router.route("/logout").post(isAuthenticated, logout);
-router.route("/forget-password").post(forgetPasswordValidator, forgetPassword);
-router.route("/verify-otp").post(verifyOtpValidator, verifyOtp);
-router.route("/reset-password").post(resetPasswordValidator, resetPassword);
+router.route("/forget-password").post(authLimiter, forgetPasswordValidator, forgetPassword);
+router.route("/verify-otp").post(authLimiter, verifyOtpValidator, verifyOtp);
+router.route("/reset-password").post(authLimiter, resetPasswordValidator, resetPassword);
 router
   .route("/update-profile")
   .patch(

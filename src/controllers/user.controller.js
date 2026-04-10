@@ -1,18 +1,10 @@
+import { getPagination, getPaginationInfo } from "../utils/pagination.js";
 import User from "../models/user.model.js";
-import ApiError from "../utils/ApiError.js";
-import { StatusCodes } from "http-status-codes";
-import ApiResponse from "../utils/ApiResponse.js";
-import { asyncHandler } from "../utils/asyncHandler.js";
-import { forgetPasswordTemp } from "../utils/emailTemplates.js";
-import {
-  uploadToCloudinary,
-  deleteFromCloudinary,
-} from "../utils/cloudinary.js";
-import jwt from "jsonwebtoken";
-import { customAlphabet } from "nanoid";
-import { sendEmail } from "../utils/sendEmail.js";
-import { ENV } from "../utils/ENV.js";
 import Cart from "../models/cart.model.js";
+import {asyncHandler} from "../utils/asyncHandler.js";
+import ApiError from "../utils/ApiError.js";
+import ApiResponse from "../utils/ApiResponse.js";
+import { StatusCodes } from "http-status-codes";
 const generateAccessAndRefreshToken = async (userId) => {
   try {
     const user = await User.findById(userId);
@@ -36,9 +28,10 @@ export const register = asyncHandler(async (req, res, next) => {
     password,
     role = "user",
   } = req.body;
-
+  console.log("Registering user:", { username, shopName, phoneNumber, city, governorate, address, role });
   // Check if User Already Exists (MobilePhone)
   const user = await User.findOne({ phoneNumber });
+  
 
   if (user)
     return next(new ApiError(StatusCodes.CONFLICT, "User already exists"));
@@ -286,7 +279,7 @@ export const verifyOtp = asyncHandler(async (req, res, next) => {
       new ApiError(StatusCodes.BAD_REQUEST, "Invalid OTP or Expired"),
     );
 
-  if (Date.now() > user.refreshPasswordTokenExpiry) {
+  if (Date.now() > user.otpExpiry) {
     return next(new ApiError(StatusCodes.BAD_REQUEST, "OTP Expired"));
   }
   return res
@@ -333,31 +326,42 @@ export const getAllUsers = asyncHandler(async (req, res, next) => {
     limit = 10,
     search,
     role,
-    sortBy,
-    sortOrder = "asc",
+    sortBy = "createdAt",
+    sortOrder = "desc",
   } = req.query;
-  const skip = (Number(page) - 1) * Number(limit);
+
+  const { skip, limit: enforcedLimit, page: currentPage } = getPagination(page, limit);
 
   let query = {};
   if (search) {
     query.$or = [
-      {
-        username: { $regex: search, $options: "i" },
-        shopName: { $regex: search, $options: "i" },
-        phoneNumber: { $regex: search, $options: "i" },
-      },
+      { username: { $regex: search, $options: "i" } },
+      { shopName: { $regex: search, $options: "i" } },
+      { phoneNumber: { $regex: search, $options: "i" } },
     ];
   }
+
   if (role) {
     query.role = role;
   }
+
+  // Get total count for pagination
+  const total = await User.countDocuments(query);
+
   const users = await User.find(query)
     .sort({ [sortBy]: sortOrder })
     .skip(skip)
-    .limit(Number(limit));
+    .limit(enforcedLimit)
+    .select('-password -refreshToken -otp -otpExpiry'); // Exclude sensitive fields
+
+  const pagination = getPaginationInfo(total, currentPage, enforcedLimit);
+
   return res
     .status(StatusCodes.OK)
-    .json(new ApiResponse(StatusCodes.OK, users, "Users Fetched Successfully"));
+    .json(new ApiResponse(StatusCodes.OK, {
+      users,
+      pagination
+    }, "Users Fetched Successfully"));
 });
 
 export const getUser = asyncHandler(async (req, res, next) => {
