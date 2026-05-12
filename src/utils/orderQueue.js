@@ -1,40 +1,23 @@
-import { Queue, Worker, QueueEvents } from "bullmq";
-import IORedis from "ioredis";
+import { Queue, Worker } from "bullmq";
 import Order from "../models/order.model.js";
 import User from "../models/user.model.js";
 import { onlineUsers } from "../../server.js";
-
-// ─── Redis Connection ────────────────────────────────────────────────────────
-const redisConnection = new IORedis({
-  maxRetriesPerRequest: null, // Required by BullMQ
-});
+import { findBestTrader } from "./orderUtils.js";
+import { getPlatformSettings } from "./settingsHelper.js";
+import redis, { checkIsMockMode } from "./redis.js";
+import { ENV } from "./ENV.js";
 
 // ─── Queue ───────────────────────────────────────────────────────────────────
-export const orderForwardQueue = new Queue("orderForward", {
-  connection: redisConnection,
-  defaultJobOptions: {
-    attempts: 1, // Each job runs once; re-queuing is done manually
-    removeOnComplete: true,
-    removeOnFail: false, // Keep failed jobs for inspection
-  },
-});
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/**
- * Fetch the next available trader to forward the order to.
- * Excludes already-tried traders and the shop owner.
- *
- * Strategy: pick the trader with the highest `rank` that hasn't been tried yet.
- * Swap out this query for any business logic you prefer.
- */
-async function getNextTrader(excludeIds = []) {
-  return User.findOne({
-    role: "trader",
-    _id: { $nin: excludeIds },
-    isOnline: true,
-  }).sort({ rank: -1 });
-}
+export const orderForwardQueue = !checkIsMockMode()
+  ? new Queue("orderForward", {
+    connection: redis,
+    defaultJobOptions: {
+      attempts: 1,
+      removeOnComplete: true,
+      removeOnFail: false,
+    },
+  })
+  : null;
 
 /**
  * Emit the order to a trader's socket (if online) and to the admin room.
@@ -48,150 +31,137 @@ function emitOrderToTrader(io, traderId, populatedOrder) {
   }
 }
 
-// ─── Enqueue helpers (called from your controller) ──────────────────────────
+// ─── Enqueue helpers ─────────────────────────────────────────────────────────
 
-const TIMEOUT_MS = 5 * 1000; // 5 Seconds — adjust as needed
+export async function enqueueOrderCheck(orderId, traderId) {
+  if (checkIsMockMode() || !orderForwardQueue) {
+    console.warn(`[Queue] Mock Mode Active. Skipping delayed check for order ${orderId}. Automatic re-forwarding will not work without Redis.`);
+    return;
+  }
 
-/**
- * Add a forwarding-check job for a freshly sent order.
- *
- * @param {string} orderId
- * @param {string} traderId  — the trader the order was just sent to
- * @param {string[]} triedTraderIds — accumulating list of traders already tried
- */
-export async function enqueueOrderCheck(
-  orderId,
-  traderId,
-  triedTraderIds = [],
-) {
-  await orderForwardQueue.add(
-    "checkAndForward",
-    { orderId, traderId, triedTraderIds },
-    {
-      delay: TIMEOUT_MS,
-      jobId: `order-${orderId}-trader-${traderId}`, // Idempotent per attempt
-    },
-  );
-  console.log(
-    `[Queue] Scheduled check for order ${orderId} → trader ${traderId} in ${TIMEOUT_MS / 1000}s`,
-  );
+  const settings = await getPlatformSettings();
+  const timeoutMs = (settings.orderTimeoutMinutes) * 60 * 1000;
+
+  try {
+    await orderForwardQueue.add(
+      "checkAndForward",
+      { orderId, traderId },
+      {
+        delay: timeoutMs,
+        jobId: `order-${orderId}-trader-${traderId}`,
+      },
+    );
+  } catch (error) {
+    console.error("[Queue] Failed to add job to Redis:", error.message);
+  }
 }
 
-/**
- * Cancel any pending check job for this order+trader combination.
- * Call this when the trader accepts or rejects in time.
- */
 export async function cancelOrderCheck(orderId, traderId) {
+  if (checkIsMockMode() || !orderForwardQueue) return;
+
   const jobId = `order-${orderId}-trader-${traderId}`;
-  const job = await orderForwardQueue.getJob(jobId);
-  if (job) {
-    await job.remove();
-    console.log(`[Queue] Cancelled check job ${jobId}`);
+  try {
+    const job = await orderForwardQueue.getJob(jobId);
+    if (job) {
+      await job.remove();
+    }
+  } catch (error) {
+    // Ignore cleanup errors in mock mode
   }
 }
 
 // ─── Worker ──────────────────────────────────────────────────────────────────
 
-/**
- * createOrderForwardWorker — call once at app startup, passing your `io` instance.
- */
 export function createOrderForwardWorker(io) {
+  if (checkIsMockMode()) {
+    console.warn("[Worker] Mock Mode Active. Automatic order forwarding worker is disabled.");
+    return null;
+  }
+
   const worker = new Worker(
     "orderForward",
     async (job) => {
-      const { orderId, traderId, triedTraderIds } = job.data;
-
-      console.log(
-        `[Worker] Checking order ${orderId} — was sent to trader ${traderId}`,
-      );
-
-      // 1. Fetch the current order state
+      const { orderId, traderId } = job.data;
       const order = await Order.findById(orderId);
 
-      if (!order) {
-        console.log(`[Worker] Order ${orderId} not found — skipping.`);
+      if (!order || order.status !== "pending") return;
+
+      // Ensure the order hasn't been assigned to someone else in the meantime
+      if (order.traderId?.toString() !== traderId.toString()) {
+        console.info(`[Worker] Order ${orderId} is no longer assigned to trader ${traderId}. Stopping.`);
         return;
       }
 
-      // 2. If the trader already responded (accepted/rejected), nothing to do
-      if (order.status !== "pending") {
-        console.log(
-          `[Worker] Order ${orderId} already has status "${order.status}" — no forwarding needed.`,
-        );
+      // Check if automatic forwarding is enabled globally
+      const settings = await getPlatformSettings();
+      if (!settings.autoForward) {
+        console.info(`[Worker] Auto forwarding is disabled globally. Stopping re-forwarding for order ${orderId}.`);
         return;
       }
 
-      // 3. Build the updated tried list (add current trader if not already there)
-      const updatedTriedIds = Array.from(
-        new Set([...triedTraderIds, traderId.toString()]),
+      console.info(`[Worker] Order ${orderId} timed out on trader ${traderId}. Searching for next available trader...`);
+
+      // 1. Update tried list in DB
+      const updatedOrderInDb = await Order.findByIdAndUpdate(orderId, {
+        $addToSet: { triedTraderIds: traderId.toString() }
+      }, { new: true });
+
+      // 2. Use Smart selection logic to find the next trader
+      const eligibleTraders = await findBestTrader(
+        updatedOrderInDb.products,
+        updatedOrderInDb.triedTraderIds,
+        updatedOrderInDb.totalPrice
       );
 
-      console.log(updatedTriedIds);
-
-      // 4. Find the next trader
-      const nextTrader = await getNextTrader(updatedTriedIds);
-
-      if (!nextTrader) {
-        console.warn(
-          `[Worker] No available traders left for order ${orderId}. Marking as unassigned.`,
-        );
-        await Order.findByIdAndUpdate(orderId, {
-          status: "pending",
-          traderId: null,
-        });
+      if (!eligibleTraders || eligibleTraders.length === 0) {
+        console.warn(`[Worker] No eligible traders left for order ${orderId}. Marking as unassigned.`);
+        await Order.findByIdAndUpdate(orderId, { traderId: null });
         io.to("admin").emit("orderUnassigned", { orderId });
-        const socketId = onlineUsers.get(traderId.toString());
-        if (socketId) {
-          io.to(socketId).emit("orderUnassigned", { orderId });
-        }
+        io.to("admin").emit("error", {
+          message: "لا يوجد تجار متاحون لتنفيذ هذا الطلب حالياً",
+          orderId: orderId
+        });
         return;
       }
 
-      // 5. Assign the next trader
-      const updatedOrder = await Order.findByIdAndUpdate(
-        orderId,
-        { traderId: nextTrader._id, status: "pending" },
+      const nextTraderResult = eligibleTraders[0];
+      const { trader: nextTrader, totalTraderPrice, products: updatedProducts } = nextTraderResult;
+
+      // 3. Assign the next trader and update prices
+      const finalUpdatedOrder = await Order.findOneAndUpdate(
+        { _id: orderId, status: "pending" },
+        {
+          traderId: nextTrader._id,
+          status: "pending",
+          totalTraderPrice,
+          products: updatedProducts,
+          $push: {
+            history: { phase: "auto forward", doneBy: null },
+            triedTraderIds: nextTrader._id
+          }
+        },
         { new: true },
       )
-        .populate(
-          "shopId",
-          "shopName phoneNumber address city governorate username",
-        )
+        .populate("shopId", "shopName phoneNumber address city governorate username")
         .populate("traderId", "name phoneNumber username shopName")
         .populate("products.productId", "name price image");
 
-      if (!updatedOrder) {
-        console.error(`[Worker] Failed to update order ${orderId}.`);
-        return;
-      }
+      if (!finalUpdatedOrder) return;
 
-      console.log(
-        `[Worker] Order ${orderId} forwarded to next trader ${nextTrader._id}`,
-      );
+      console.log(`[Worker] Order ${orderId} forwarded to next trader ${nextTrader._id} | Price: ${totalTraderPrice}`);
 
-      // 6. Notify admin + new trader via socket
-      emitOrderToTrader(io, nextTrader._id, updatedOrder);
+      const formattedOrder = finalUpdatedOrder.toObject();
+      formattedOrder.history = await finalUpdatedOrder.getFormattedHistory();
 
-      // 7. Schedule the next timeout check for the new trader
-      await enqueueOrderCheck(
-        orderId,
-        nextTrader._id.toString(),
-        updatedTriedIds,
-      );
+      emitOrderToTrader(io, nextTrader._id, formattedOrder);
+
+      await enqueueOrderCheck(orderId, nextTrader._id.toString());
     },
     {
-      connection: redisConnection,
-      concurrency: 10, // Process up to 10 jobs simultaneously
+      connection: redis,
+      concurrency: 10,
     },
   );
-
-  worker.on("completed", (job) => {
-    console.log(`[Worker] Job ${job.id} completed.`);
-  });
-
-  worker.on("failed", (job, err) => {
-    console.error(`[Worker] Job ${job?.id} failed:`, err.message);
-  });
 
   return worker;
 }

@@ -1,10 +1,19 @@
 import { getPagination, getPaginationInfo } from "../utils/pagination.js";
 import User from "../models/user.model.js";
 import Cart from "../models/cart.model.js";
-import {asyncHandler} from "../utils/asyncHandler.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
 import ApiError from "../utils/ApiError.js";
 import ApiResponse from "../utils/ApiResponse.js";
 import { StatusCodes } from "http-status-codes";
+import {
+  uploadToCloudinary,
+  deleteFromCloudinary,
+} from "../utils/cloudinary.js";
+import { customAlphabet } from "nanoid";
+import { sendEmail } from "../utils/sendEmail.js";
+import { forgetPasswordTemp } from "../utils/emailTemplates.js";
+import jwt from "jsonwebtoken";
+import { ENV } from "../utils/ENV.js";
 const generateAccessAndRefreshToken = async (userId) => {
   try {
     const user = await User.findById(userId);
@@ -28,10 +37,17 @@ export const register = asyncHandler(async (req, res, next) => {
     password,
     role = "user",
   } = req.body;
-  console.log("Registering user:", { username, shopName, phoneNumber, city, governorate, address, role });
+  console.log("Registering user:", {
+    username,
+    shopName,
+    phoneNumber,
+    city,
+    governorate,
+    address,
+    role,
+  });
   // Check if User Already Exists (MobilePhone)
   const user = await User.findOne({ phoneNumber });
-  
 
   if (user)
     return next(new ApiError(StatusCodes.CONFLICT, "User already exists"));
@@ -105,21 +121,27 @@ export const login = asyncHandler(async (req, res, next) => {
     return next(
       new ApiError(StatusCodes.BAD_REQUEST, "Error While Logging In User"),
     );
+  const isProduction = ENV.NODE_ENV === "production";
+  
   return res
     .status(StatusCodes.OK)
     .cookie("accessToken", accessToken, {
       httpOnly: true,
-      secure: true,
-      sameSite: "strict",
+      secure: isProduction,
+      sameSite: isProduction ? "none" : "lax",
       maxAge: 3 * 24 * 60 * 60 * 1000,
     })
     .cookie("refreshToken", refreshToken, {
       httpOnly: true,
-      secure: true,
-      sameSite: "strict",
+      secure: isProduction,
+      sameSite: isProduction ? "none" : "lax",
       maxAge: 7 * 24 * 60 * 60 * 1000,
     })
-    .json(new ApiResponse(StatusCodes.OK, user, "User logged in successfully"));
+    .json(new ApiResponse(StatusCodes.OK, { 
+      user, 
+      accessToken, 
+      refreshToken 
+    }, "User logged in successfully"));
 });
 
 export const logout = asyncHandler(async (req, res, next) => {
@@ -262,7 +284,7 @@ export const forgetPassword = asyncHandler(async (req, res, next) => {
 export const verifyOtp = asyncHandler(async (req, res, next) => {
   const { otp } = req.body;
   const token = req?.cookies?.accessToken;
-
+  console.log(token)
   if (!token)
     return next(new ApiError(StatusCodes.UNAUTHORIZED, "No Token Found"));
   const decoded = jwt.verify(token, ENV.ACCESS_TOKEN);
@@ -330,7 +352,11 @@ export const getAllUsers = asyncHandler(async (req, res, next) => {
     sortOrder = "desc",
   } = req.query;
 
-  const { skip, limit: enforcedLimit, page: currentPage } = getPagination(page, limit);
+  const {
+    skip,
+    limit: enforcedLimit,
+    page: currentPage,
+  } = getPagination(page, limit);
 
   let query = {};
   if (search) {
@@ -352,24 +378,28 @@ export const getAllUsers = asyncHandler(async (req, res, next) => {
     .sort({ [sortBy]: sortOrder })
     .skip(skip)
     .limit(enforcedLimit)
-    .select('-password -refreshToken -otp -otpExpiry'); // Exclude sensitive fields
+    .select("-password -refreshToken -otp -otpExpiry"); // Exclude sensitive fields
 
   const pagination = getPaginationInfo(total, currentPage, enforcedLimit);
 
-  return res
-    .status(StatusCodes.OK)
-    .json(new ApiResponse(StatusCodes.OK, {
-      users,
-      pagination
-    }, "Users Fetched Successfully"));
+  return res.status(StatusCodes.OK).json(
+    new ApiResponse(
+      StatusCodes.OK,
+      {
+        users,
+        pagination,
+      },
+      "Users Fetched Successfully",
+    ),
+  );
 });
 
 export const getUser = asyncHandler(async (req, res, next) => {
   const { id } = req.params;
-  const user = await User.findById(id);
-  // .populate("ordersAccepted", "id isAccepted totalPrice totalQuantity")
-  // .populate("ordersRejected", "id isAccepted totalPrice totalQuantity")
-  // .populate("favorites", "id name image");
+  const user = await User.findById(id)
+    .populate("ordersAccepted", "id isAccepted totalPrice totalQuantity")
+    .populate("ordersRejected", "id isAccepted totalPrice totalQuantity")
+    .populate("favorites", "id name image");
 
   if (!user)
     return next(new ApiError(StatusCodes.BAD_REQUEST, "User Not Found"));

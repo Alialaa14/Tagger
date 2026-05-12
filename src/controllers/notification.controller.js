@@ -10,13 +10,11 @@ import { onlineUsers } from "../../server.js";
 
 export const sendNotification = (io, socket) => {
   socket.on("sendNotification", async (notification) => {
-    console.log("Received notification:", notification);
     if (notification.forAll) {
       const newNotification = await Notification.create({
         message: notification.message,
         forAll: true,
       });
-      console.log("Created notification for all users:", newNotification);
 
       if (!newNotification) return;
 
@@ -126,7 +124,6 @@ export const markNotificationRead = asyncHandler(async (req, res, next) => {
     { $addToSet: { readBy: req.user.id } }, // $addToSet guarantees no duplicates
     { new: true },
   );
-  console.log(notification);
   if (!notification)
     return next(new ApiError(StatusCodes.NOT_FOUND, "Notification Not Found"));
 

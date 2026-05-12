@@ -14,6 +14,7 @@ import {
   stockOut,
   adjustStock,
   getInventoryLogs,
+  scanQrCode
 } from "../controllers/inventory.controller.js";
 
 const router = Router();
@@ -31,6 +32,7 @@ router.use(isAuthenticated);
 //   GET /api/products/catalog?search=&page=1&limit=10
 // (requires authentication + trader | user | admin role)
 // ─────────────────────────────────────────────────────────────
+router.route("/scan/:userId/:productId").post(isAuthorized("user"), scanQrCode)
 
 // ─────────────────────────────────────────────────────────────
 // CREATE

@@ -8,7 +8,10 @@ import {
   uploadToCloudinary,
   deleteFromCloudinary,
 } from "../utils/cloudinary.js";
-
+import { generateQrCode } from "../utils/qrCodeGeneration.js";
+import { getPlatformSettings } from "../utils/settingsHelper.js";
+import { Types } from "mongoose";
+import User from "../models/user.model.js"
 // ─────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────
@@ -64,7 +67,6 @@ const writeLog = async ({
 export const createPlatformInventory = asyncHandler(async (req, res, next) => {
   const userId = req.user.id;
   const { productId, userPrice, quantity = 0, lowStockThreshold } = req.body;
-
   if (!productId) return next(new ApiError(400, "productId is required"));
 
   // Confirm the platform product exists and grab its price for internal snapshot
@@ -77,6 +79,9 @@ export const createPlatformInventory = asyncHandler(async (req, res, next) => {
   if (existing)
     return next(new ApiError(409, "This product is already in your inventory"));
 
+  const settings = await getPlatformSettings();
+  const qrCode = await generateQrCode(productId, userId);
+
   const inventoryData = {
     userId,
     source: "platform",
@@ -84,7 +89,8 @@ export const createPlatformInventory = asyncHandler(async (req, res, next) => {
     platformPrice: platformProduct.price, // stored internally, never returned to user
     quantity,
     ...(userPrice !== undefined && { userPrice }),
-    ...(lowStockThreshold !== undefined && { lowStockThreshold }),
+    lowStockThreshold: lowStockThreshold !== undefined ? lowStockThreshold : settings.defaultLowStockThreshold,
+    qrCode,
   };
 
   const inventory = await Inventory.create(inventoryData);
@@ -136,6 +142,16 @@ export const createCustomInventory = asyncHandler(async (req, res, next) => {
 
   if (!name) return next(new ApiError(400, "Product name is required"));
 
+  //Check if user already has a custom product with the same name to prevent duplicates
+  const existing = await Inventory.findOne({
+    userId,
+    source: "custom",
+    "customProduct.name": name,
+  });
+  if (existing)
+    return next(
+      new ApiError(409, "You already have a custom product with this name"),
+    );
   // Handle optional image upload
   let image = {};
   if (req.file) {
@@ -146,6 +162,10 @@ export const createCustomInventory = asyncHandler(async (req, res, next) => {
     if (!uploaded) return next(new ApiError(500, "Image upload failed"));
     image = { public_id: uploaded.public_id, url: uploaded.secure_url };
   }
+  const customProductId = `${userId.toString()}${Date.now()}`; // unique ID for this custom product
+  const qrCode = await generateQrCode(customProductId, userId);
+
+  const settings = await getPlatformSettings();
 
   const inventoryData = {
     userId,
@@ -156,10 +176,12 @@ export const createCustomInventory = asyncHandler(async (req, res, next) => {
       ...(category && { category }),
       ...(Object.keys(image).length && { image }),
       ...(userPrice !== undefined && { price: userPrice }),
+      id: customProductId, // unique ID for this custom product
     },
     quantity,
     ...(userPrice !== undefined && { userPrice }),
-    ...(lowStockThreshold !== undefined && { lowStockThreshold }),
+    lowStockThreshold: lowStockThreshold !== undefined ? lowStockThreshold : settings.defaultLowStockThreshold,
+    qrCode,
   };
 
   const inventory = await Inventory.create(inventoryData);
@@ -517,7 +539,8 @@ export const adjustStock = asyncHandler(async (req, res, next) => {
 export const getInventoryLogs = asyncHandler(async (req, res, next) => {
   const { id } = req.params;
   const requesterId = req.user.id;
-  const isAdmin = req.user.role === "admin";
+  const user = await User.findById(requesterId);
+  const isAdmin = user.role === "admin"
   const { type, page = 1, limit = 20 } = req.query;
   const skip = (Number(page) - 1) * Number(limit);
 
@@ -573,11 +596,12 @@ export const autoStockInOnDelivery = async ({ userId, products }) => {
     const { productId, quantity } = item;
 
     let inventory = await Inventory.findOne({ userId, productId });
-
+    const platformProduct = await Product.findById(productId)
+    const unitQuantity = platformProduct.unitQuantity
     if (inventory) {
       // ── Record exists — just add the quantity ─────────────
       const quantityBefore = inventory.quantity;
-      inventory.quantity += quantity;
+      inventory.quantity += quantity * unitQuantity;
       await inventory.save();
 
       await writeLog({
@@ -589,16 +613,13 @@ export const autoStockInOnDelivery = async ({ userId, products }) => {
         note: "Auto stock-in from delivered order",
       });
     } else {
-      // ── No record yet — create one automatically ──────────
-      const platformProduct =
-        await Product.findById(productId).select("+price");
 
       const newInventory = await Inventory.create({
         userId,
         source: "platform",
         productId,
         platformPrice: platformProduct?.price ?? null,
-        quantity,
+        quantity: quantity * unitQuantity,
       });
 
       await writeLog({
@@ -612,3 +633,50 @@ export const autoStockInOnDelivery = async ({ userId, products }) => {
     }
   }
 };
+
+export const scanQrCode = asyncHandler(async (req, res, next) => {
+  const productId = req.params.productId;
+  const userId = req.params.userId;
+
+  const checkProductType = Types.ObjectId.isValid(productId);
+  let inventory = null;
+  if (checkProductType) {
+    inventory = await Inventory.findOne({ userId, productId });
+  } else {
+    inventory = await Inventory.findOne({
+      userId,
+      "customProduct.id": productId,
+    });
+  }
+
+  if (!inventory)
+    return next(new ApiError(404, "Product not found in your inventory"));
+
+  if (inventory.source === "platform") {
+    await Inventory.findByIdAndUpdate(
+      inventory._id,
+      { $inc: { quantity: -1 } },
+      { new: true },
+    );
+  } else {
+    await Inventory.findOneAndUpdate(
+      { "customProduct.id": productId },
+      { $inc: { quantity: -1 } },
+      { new: true },
+    );
+  }
+  await writeLog({
+    inventoryId: inventory._id,
+    performedBy: userId,
+    type: "stock_out",
+    quantityBefore: inventory.quantity,
+    quantityAfter: inventory.quantity - 1,
+    note: "Stock out via QR code scan",
+  });
+
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(200, { inventory }, "Product scanned and stock updated"),
+    );
+});

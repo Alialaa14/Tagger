@@ -87,8 +87,8 @@ const inventorySchema = new Schema(
 
     // ── QR code — implement yourself ─────────────────────────
     qrCode: {
-      public_id: { type: String, default: null },
-      url: { type: String, default: null },
+      type: String,
+      required: [true, "QR code is required"],
     },
 
     // ── Stock ─────────────────────────────────────────────────
@@ -129,7 +129,6 @@ inventorySchema.index(
 // ── Pre-save: sync isLowStock flag automatically ──────────────
 inventorySchema.pre("save", function (next) {
   this.isLowStock = this.quantity <= this.lowStockThreshold;
-  next();
 });
 
 // ── Pre-save: enforce exactly one source ──────────────────────
@@ -149,8 +148,6 @@ inventorySchema.pre("save", function (next) {
         "An inventory record cannot link both a productId and a customProduct",
       ),
     );
-
-  next();
 });
 
 const Inventory = model("inventory", inventorySchema);

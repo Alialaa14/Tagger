@@ -5,7 +5,9 @@ import { StatusCodes } from "http-status-codes";
 
 export const isAuthenticated = (req, res, next) => {
   const token =
-    req.cookies?.accessToken || req.headers?.authorization?.split(" ")[1];
+    req.cookies?.accessToken || 
+    req.cookies?.access_token || 
+    req.headers?.authorization?.split(" ")[1];
   if (!token)
     return next(
       new ApiError(StatusCodes.UNAUTHORIZED, "You are not authenticated"),
@@ -23,5 +25,25 @@ export const isAuthenticated = (req, res, next) => {
         "Invalid token, authentication failed",
       ),
     );
+  }
+};
+
+export const isOptionalAuthenticated = (req, res, next) => {
+  const token =
+    req.cookies?.accessToken || 
+    req.cookies?.access_token || 
+    req.headers?.authorization?.split(" ")[1];
+  
+  if (!token) {
+    return next();
+  }
+
+  try {
+    const decoded = jwt.verify(token, ENV.ACCESS_TOKEN);
+    req.user = decoded;
+    return next();
+  } catch (error) {
+    // If token is invalid, we just proceed as unauthenticated
+    return next();
   }
 };

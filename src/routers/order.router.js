@@ -32,45 +32,31 @@ router
   .get(orderQueryValidators, getOrders)
   .post(createOrderValidators, createOrder);
 
-// Get, update, delete specific order
-router
-  .route("/:id")
-  .get(orderIdValidators, getOrder)
-  .patch(
-    isAuthorized("admin", "user"),
-    updateOrderValidators,
-    updateOrder
-  )
-  .delete(
-    isAuthorized("admin", "user"),
-    orderIdValidators,
-    deleteOrder
-  );
-
-// Forward order to trader (admin only)
-router
-  .route("/forward")
-  .post(
-    isAuthorized("admin"),
-    forwardOrderValidators,
-    forwardOrder
-  );
-
 // Get order statistics (admin only)
 router
   .route("/stats")
-  .get(
-    isAuthorized("admin"),
-    orderStatsValidators,
-    getOrderStats
-  );
+  .get(isAuthorized("admin"), orderStatsValidators, getOrderStats);
 
 // Get user-specific order statistics
 router
   .route("/stats/:userId")
   .get(
     userStatsValidators,
-    getUserOrderStats
+    getUserOrderStats,
   );
+
+// Get, update, delete specific order
+router
+  .route("/:id")
+  .get(orderIdValidators, getOrder)
+  .patch(isAuthorized("admin", "user"), updateOrderValidators, updateOrder)
+  .delete(isAuthorized("admin", "user"), orderIdValidators, deleteOrder);
+
+// Forward order to trader (admin only)
+router
+  .route("/forward")
+  .post(isAuthorized("admin"), forwardOrderValidators, forwardOrder);
+
+
 
 export default router;

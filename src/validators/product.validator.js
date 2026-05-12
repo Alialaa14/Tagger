@@ -23,6 +23,7 @@ export const createProductValidator = [
     .withMessage("Category is Required")
     .isMongoId()
     .withMessage("Invalid Category ID"),
+  check("unitQuantity").notEmpty().withMessage("Required Unit Quantity").isNumeric().withMessage("Should Be Number"),
   validationMiddleware,
 ];
 
@@ -67,5 +68,13 @@ export const getProductValidator = [
 
 export const getProductsValidator = [
   check("category").optional().isMongoId().withMessage("Invalid Category ID"),
+  check("company").optional().isMongoId().withMessage("Invalid Company ID"),
+  check("search").optional().isString().withMessage("Search must be a string"),
+  check("minPrice").optional().isNumeric().withMessage("Price must be a number"),
+  check("maxPrice").optional().isNumeric().withMessage("Price must be a number"),
+  check("page").optional().isInt({ min: 1 }),
+  check("limit").optional().isInt({ min: 1 }),
+  check("sortBy").optional().isString(),
+  check("sortOrder").optional().isIn(["asc", "desc"]),
   validationMiddleware,
 ];

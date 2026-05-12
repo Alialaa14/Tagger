@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { isAuthenticated } from "../middlewares/isAuthenticated.js";
+import { isAuthenticated, isOptionalAuthenticated } from "../middlewares/isAuthenticated.js";
 import { isAuthorized } from "../middlewares/isAuthorized.js";
 import upload from "../utils/multer.js";
 import {
@@ -8,7 +8,9 @@ import {
   getAllProducts,
   getProduct,
   updateProduct,
+  checkProductAvailability,
 } from "../controllers/product.controller.js";
+import { getProductStats } from "../controllers/productStats.controller.js";
 import {
   createProductValidator,
   updateProductValidator,
@@ -52,6 +54,18 @@ router
     createProductValidator,
     createProduct,
   );
+
+// ─────────────────────────────────────────────────────────────
+// AVAILABILITY
+// GET /api/products/:id/availability
+// ─────────────────────────────────────────────────────────────
+router.route("/:id/availability").get(isOptionalAuthenticated, checkProductAvailability);
+
+// ─────────────────────────────────────────────────────────────
+// STATISTICS
+// GET /api/products/stats
+// ─────────────────────────────────────────────────────────────
+router.get("/stats", isAuthenticated, isAuthorized("admin"), getProductStats);
 
 // ─────────────────────────────────────────────────────────────
 // SINGLE PRODUCT

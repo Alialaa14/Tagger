@@ -23,7 +23,9 @@ export const createOrderValidators = [
 
   check("products")
     .isArray({ min: 1 })
-    .withMessage("Products array is required and must contain at least one product"),
+    .withMessage(
+      "Products array is required and must contain at least one product",
+    ),
 
   check("products.*.productId")
     .isMongoId()
@@ -97,7 +99,14 @@ export const createOrderValidators = [
 export const updateOrderValidators = [
   check("status")
     .optional()
-    .isIn(["pending", "accepted", "rejected", "shipped", "delivered", "cancelled"])
+    .isIn([
+      "pending",
+      "accepted",
+      "rejected",
+      "shipped",
+      "delivered",
+      "cancelled",
+    ])
     .withMessage("Invalid order status"),
 
   check("traderId")
@@ -209,21 +218,31 @@ export const orderQueryValidators = [
 
   query("status")
     .optional()
-    .isIn(["pending", "accepted", "rejected", "shipped", "delivered", "cancelled"])
+    .isIn([
+      "pending",
+      "accepted",
+      "rejected",
+      "shipped",
+      "delivered",
+      "cancelled",
+    ])
     .withMessage("Invalid status filter"),
 
-  query("userId")
-    .optional()
-    .isMongoId()
-    .withMessage("Invalid user ID"),
+  query("userId").optional({ checkFalsy: true }).isMongoId().withMessage("Invalid user ID"),
+  query("shopId").optional({ checkFalsy: true }).isMongoId().withMessage("Invalid shop ID"),
+  query("traderId").optional({ checkFalsy: true }).isMongoId().withMessage("Invalid trader ID"),
+  query("paymentMethod").optional({ checkFalsy: true }).isString().withMessage("Invalid payment method"),
+  query("paymentStatus").optional({ checkFalsy: true }).isString().withMessage("Invalid payment status"),
+  query("city").optional({ checkFalsy: true }).isString().withMessage("Invalid city"),
+  query("search").optional({ checkFalsy: true }).isString().withMessage("Invalid search query"),
 
   query("startDate")
-    .optional()
+    .optional({ checkFalsy: true })
     .isISO8601()
     .withMessage("Invalid start date format"),
 
   query("endDate")
-    .optional()
+    .optional({ checkFalsy: true })
     .isISO8601()
     .withMessage("Invalid end date format"),
 
@@ -269,14 +288,21 @@ export const forwardOrderValidators = [
 // Order statistics query validation
 export const orderStatsValidators = [
   query("startDate")
-    .optional()
+    .optional({ checkFalsy: true })
     .isISO8601()
     .withMessage("Invalid start date format"),
 
   query("endDate")
-    .optional()
+    .optional({ checkFalsy: true })
     .isISO8601()
     .withMessage("Invalid end date format"),
+
+  query("shopId").optional({ checkFalsy: true }).isMongoId().withMessage("Invalid shop ID"),
+  query("traderId").optional({ checkFalsy: true }).isMongoId().withMessage("Invalid trader ID"),
+  query("paymentMethod").optional().isString().withMessage("Invalid payment method"),
+  query("paymentStatus").optional().isString().withMessage("Invalid payment status"),
+  query("city").optional().isString().withMessage("Invalid city"),
+  query("search").optional().isString().withMessage("Invalid search query"),
 
   validationMiddleware,
 ];
@@ -296,12 +322,12 @@ export const userStatsValidators = [
     }),
 
   query("startDate")
-    .optional()
+    .optional({ checkFalsy: true })
     .isISO8601()
     .withMessage("Invalid start date format"),
 
   query("endDate")
-    .optional()
+    .optional({ checkFalsy: true })
     .isISO8601()
     .withMessage("Invalid end date format"),
 

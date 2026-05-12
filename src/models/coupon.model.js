@@ -18,13 +18,21 @@ const couponSchema = new Schema(
       type: Boolean,
       default: false,
     },
-    usedBy: {
+    usedBy: [{
       type: Schema.Types.ObjectId,
       ref: "user",
       default: null,
+    }],
+    maxUse: {
+      type: Number,
+      required: [true, "Max Use is required"],
     },
+    usedCount: {
+      type: Number,
+      default: 0,
+    }
   },
-  { timeStamps: true },
+  { timestamps: true },
 );
 
 const Coupon = model("coupon", couponSchema);

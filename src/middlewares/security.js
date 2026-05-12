@@ -1,9 +1,9 @@
-import rateLimit from 'express-rate-limit';
-import helmet from 'helmet';
-import mongoSanitize from 'express-mongo-sanitize';
-import hpp from 'hpp';
-import compression from 'compression';
-import { ENV } from '../utils/ENV.js';
+import rateLimit from "express-rate-limit";
+import helmet from "helmet";
+import mongoSanitize from "express-mongo-sanitize";
+import hpp from "hpp";
+import compression from "compression";
+import { ENV } from "../utils/ENV.js";
 
 // const mongoSanitizeCompatible = (options = {}) => (req, res, next) => {
 //   ['body', 'params', 'headers'].forEach((key) => {
@@ -21,11 +21,11 @@ import { ENV } from '../utils/ENV.js';
 
 // Rate limiting
 export const limiter = rateLimit({
-  windowMs: (ENV.RATE_LIMIT_WINDOW || 15) * 60 * 1000, // 15 minutes
+  windowMs: (ENV.RATE_LIMIT_WINDOW || 15) * 1000, // 15 minutes
   max: ENV.RATE_LIMIT_MAX_REQUESTS || 100, // limit each IP to 100 requests per windowMs
   message: {
     success: false,
-    message: 'Too many requests from this IP, please try again later.'
+    message: "Too many requests from this IP, please try again later.",
   },
   standardHeaders: true,
   legacyHeaders: false,
@@ -33,11 +33,11 @@ export const limiter = rateLimit({
 
 // More strict rate limiting for auth routes
 export const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 2 * 1000, // 15 minutes
   max: 5, // limit each IP to 5 requests per windowMs for auth routes
   message: {
     success: false,
-    message: 'Too many authentication attempts, please try again later.'
+    message: "Too many authentication attempts, please try again later.",
   },
   standardHeaders: true,
   legacyHeaders: false,
@@ -64,7 +64,7 @@ export const securityMiddleware = [
   limiter,
 
   // Data sanitization against NoSQL query injection
-//   mongoSanitizeCompatible(),
+  //   mongoSanitizeCompatible(),
 
   // Prevent parameter pollution
   hpp(),

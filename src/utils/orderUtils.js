@@ -1,4 +1,7 @@
 import User from "../models/user.model.js";
+import TraderProduct from "../models/traderProduct.js";
+import { getPlatformSettings } from "./settingsHelper.js";
+
 export const calculateOrderRank = (products) => {
   if (!products || products.length === 0) return 0;
 
@@ -19,33 +22,80 @@ export const calculateOrderRank = (products) => {
   return rankScore;
 };
 
-export const autoChooseTrader = async (users) => {
-  if (!users || users.length === 0) return null;
 
-  const traders = await User.find({ role: "trader", _id: { $in: users } });
 
-  if (traders.length === 0) return null;
 
-  const rankedTraders = traders.filter((user) => user.rank > 0);
-  const unrankedTraders = traders.filter((user) => user.rank === 0);
+/**
+ * findBestTrader
+ * Logic:
+ * 1. Get online traders not in excludeIds.
+ * 2. Filter those who have ALL products in the order.
+ * 3. Calculate their totalTraderPrice.
+ * 4. SKIP if totalTraderPrice > platformPrice (totalAmount of the order).
+ * 5. Sort by Rank (desc).
+ */
+export const findBestTrader = async (products, excludeIds = [], platformPrice) => {
+  if (!products || products.length === 0) return null;
 
-  const pickUnranked = unrankedTraders.length > 0 && Math.random() < 0.3;
+  const onlineTraders = await User.find({
+    role: "trader",
+    isOnline: true,
+    _id: { $nin: excludeIds },
+  });
 
-  if (pickUnranked) {
-    const randomIndex = Math.floor(Math.random() * unrankedTraders.length);
-    return unrankedTraders[randomIndex];
+  if (onlineTraders.length === 0) return null;
+
+  const eligibleTraders = [];
+
+  for (const trader of onlineTraders) {
+    let currentTraderTotalPrice = 0;
+    let hasAllProducts = true;
+    const traderProducts = [];
+
+    for (const item of products) {
+      const productId = (item.productId?._id || item.productId)?.toString();
+      const record = await TraderProduct.findOne({
+        traderId: trader._id,
+        productId: productId,
+      });
+
+      if (!record) {
+        hasAllProducts = false;
+        break;
+      }
+
+      const itemPrice = record.price * item.quantity;
+      currentTraderTotalPrice += itemPrice;
+      traderProducts.push({
+        ...item.toObject ? item.toObject() : item,
+        traderPrice: itemPrice,
+      });
+    }
+
+    // Skip if missing products or price is too high (higher than what user pays)
+    // Filter out traders whose price is too high (if ceiling is enabled)
+    const settings = await getPlatformSettings();
+    const isPriceCeilingActive = settings.priceCeilingEnabled;
+
+    if (!hasAllProducts || (isPriceCeilingActive && currentTraderTotalPrice > platformPrice)) {
+      continue;
+    }
+
+    eligibleTraders.push({
+      trader,
+      totalTraderPrice: currentTraderTotalPrice,
+      products: traderProducts,
+    });
   }
 
-  if (rankedTraders.length === 0) {
-    const randomIndex = Math.floor(Math.random() * unrankedTraders.length);
-    return unrankedTraders[randomIndex];
-  }
+  if (eligibleTraders.length === 0) return null;
 
-  // Higher rank number = better, so pick the max
-  const bestTrader = rankedTraders.reduce(
-    (best, current) => (current.rank > best.rank ? current : best),
-    rankedTraders[0],
-  );
-
-  return bestTrader;
+  // Sort by Rank desc, then price asc
+  eligibleTraders.sort((a, b) => {
+    if (b.trader.rank !== a.trader.rank) {
+      return b.trader.rank - a.trader.rank;
+    }
+    return a.totalTraderPrice - b.totalTraderPrice;
+  });
+  return eligibleTraders;
 };

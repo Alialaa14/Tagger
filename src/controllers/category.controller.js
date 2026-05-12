@@ -103,6 +103,7 @@ export const deleteCategory = asyncHandler(async (req, res, next) => {
   if (!category)
     return next(new ApiError(StatusCodes.NOT_FOUND, "Category Not Found"));
   // Delete Image from Cloudinary
+  console.log(category.image.public_id)
   if (category.image?.public_id) {
     await deleteFromCloudinary(category.image.public_id, "image");
   }

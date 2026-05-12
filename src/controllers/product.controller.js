@@ -3,6 +3,8 @@ import ApiError from "../utils/ApiError.js";
 import ApiResponse from "../utils/ApiResponse.js";
 import Product from "../models/product.model.js";
 import Category from "../models/category.model.js";
+import Company from "../models/company.model.js";
+import TraderProduct from "../models/traderProduct.js";
 import { StatusCodes } from "http-status-codes";
 import {
   uploadToCloudinary,
@@ -15,7 +17,7 @@ import {
 // @Access  Private — admin only
 // ─────────────────────────────────────────────────────────────
 export const createProduct = asyncHandler(async (req, res, next) => {
-  const { name, description, category, price } = req.body;
+  const { name, description, category, company, price, unitQuantity } = req.body;
 
   const existing = await Product.findOne({ name });
   if (existing)
@@ -24,6 +26,10 @@ export const createProduct = asyncHandler(async (req, res, next) => {
   const categoryExists = await Category.findById(category);
   if (!categoryExists)
     return next(new ApiError(StatusCodes.NOT_FOUND, "Category Not Found"));
+
+  const companyExists = await Company.findById(company);
+  if (!companyExists)
+    return next(new ApiError(StatusCodes.NOT_FOUND, "Company Not Found"));
 
   let imageUpload = {};
   if (req?.file?.path) {
@@ -38,8 +44,10 @@ export const createProduct = asyncHandler(async (req, res, next) => {
     name,
     description,
     category,
+    company,
     price,
     image: imageUpload,
+    unitQuantity
   });
 
   if (!newProduct)
@@ -62,13 +70,19 @@ export const createProduct = asyncHandler(async (req, res, next) => {
 // @Access  Private — admin only
 // ─────────────────────────────────────────────────────────────
 export const updateProduct = asyncHandler(async (req, res, next) => {
-  const { name, description, category, price } = req.body;
+  const { name, description, category, company, price, unitQuantity } = req.body;
   const productId = req.params.id;
 
   if (category) {
     const categoryExists = await Category.findById(category);
     if (!categoryExists)
       return next(new ApiError(StatusCodes.NOT_FOUND, "Category Not Found"));
+  }
+
+  if (company) {
+    const companyExists = await Company.findById(company);
+    if (!companyExists)
+      return next(new ApiError(StatusCodes.NOT_FOUND, "Company Not Found"));
   }
 
   const product = await Product.findById(productId);
@@ -93,8 +107,10 @@ export const updateProduct = asyncHandler(async (req, res, next) => {
       name: name || product.name,
       description: description || product.description,
       category: category || product.category,
+      company: company || product.company,
       price: price || product.price,
       image: imageUpload || product.image,
+      unitQuantity: unitQuantity || product.unitQuantity
     },
     { new: true },
   );
@@ -150,7 +166,7 @@ export const deleteProduct = asyncHandler(async (req, res, next) => {
 // @Access  Public (getAllProducts) | Authenticated (getCatalog)
 //
 // Query params:
-//   page, limit, search, minPrice, maxPrice, category, sortBy, sortOrder
+//   page, limit, search, minPrice, maxPrice, category, company, sortBy, sortOrder
 // ─────────────────────────────────────────────────────────────
 export const getAllProducts = asyncHandler(async (req, res, next) => {
   const {
@@ -160,8 +176,9 @@ export const getAllProducts = asyncHandler(async (req, res, next) => {
     minPrice,
     maxPrice,
     category,
-    sortBy = "name",
-    sortOrder = "asc",
+    company,
+    sortBy = "sold",
+    sortOrder = "desc",
   } = req.query;
 
   const skip = (Number(page) - 1) * Number(limit);
@@ -177,9 +194,10 @@ export const getAllProducts = asyncHandler(async (req, res, next) => {
   }
 
   // ── Category filter ───────────────────────────────────────
-  if (category) {
-    query.category = category;
-  }
+  if (category) query.category = category;
+
+  // ── Company filter ────────────────────────────────────────
+  if (company) query.company = company;
 
   // ── Price range filter ────────────────────────────────────
   if (minPrice !== undefined || maxPrice !== undefined) {
@@ -193,7 +211,9 @@ export const getAllProducts = asyncHandler(async (req, res, next) => {
       .sort({ [sortBy]: sortOrder === "desc" ? -1 : 1 })
       .skip(skip)
       .limit(Number(limit))
-      .populate("category", "name"),
+      .populate("category", "name")
+      .populate("company", "name logo").
+      populate("userAsksAvailabilty", "username phoneNumber shopName"),
     Product.countDocuments(query),
   ]);
 
@@ -220,14 +240,42 @@ export const getAllProducts = asyncHandler(async (req, res, next) => {
 // @Access  Public
 // ─────────────────────────────────────────────────────────────
 export const getProduct = asyncHandler(async (req, res, next) => {
-  const product = await Product.findById(req.params.id).populate(
-    "category",
-    "name",
-  );
+  const product = await Product.findById(req.params.id)
+    .populate("category", "name")
+    .populate("company", "name logo");
+
   if (!product)
     return next(new ApiError(StatusCodes.NOT_FOUND, "Product Not Found"));
 
   return res
     .status(StatusCodes.OK)
     .json(new ApiResponse(StatusCodes.OK, product, "Product Fetched"));
+});
+
+// ─────────────────────────────────────────────────────────────
+// @Desc    Check Product Availability (is it offered by any trader?)
+// @Route   GET /api/products/:id/availability
+// @Access  Public / Authenticated
+// ─────────────────────────────────────────────────────────────
+export const checkProductAvailability = asyncHandler(async (req, res, next) => {
+  const productId = req.params.id;
+
+  // Add the user that asks to userAsksAvailabilty
+  if (req.user?.id) {
+    await Product.findByIdAndUpdate(productId, {
+      $addToSet: { userAsksAvailabilty: req.user.id },
+    });
+  }
+
+  const traderProduct = await TraderProduct.find({ productId });
+
+  if (!traderProduct || traderProduct.length === 0) {
+    return res
+      .status(StatusCodes.OK)
+      .json(new ApiResponse(StatusCodes.OK, { available: false }, "Product not offered by any trader"));
+  }
+
+  return res
+    .status(StatusCodes.OK)
+    .json(new ApiResponse(StatusCodes.OK, { available: true, status: `متوفر فى ${traderProduct.length} مخازن` }, "existed"));
 });

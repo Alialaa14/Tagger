@@ -9,7 +9,7 @@ export const getCoupon = asyncHandler(async (req, res, next) => {
 
   const coupon = await Coupon.findById(couponId).populate(
     "usedBy",
-    "name shopName phoneNumber",
+    "username shopName phoneNumber",
   );
   if (!coupon)
     return next(new ApiError(StatusCodes.NOT_FOUND, "Coupon Not Found"));
@@ -39,7 +39,7 @@ export const getAllCoupons = asyncHandler(async (req, res, next) => {
   const coupons = await Coupon.find(query)
     .skip(skip)
     .limit(Number(limit))
-    .sort({ createdAt: -1 });
+    .sort({ createdAt: -1 }).populate("usedBy", "username shopName phoneNumber");
   if (!coupons || coupons.length === 0) {
     return next(new ApiError(StatusCodes.NOT_FOUND, "There are no Coupons"));
   }
@@ -49,13 +49,13 @@ export const getAllCoupons = asyncHandler(async (req, res, next) => {
 });
 
 export const createCoupon = asyncHandler(async (req, res, next) => {
-  const { name, discount, expiry } = req.body;
+  const { name, discount, expiry, maxUse } = req.body;
 
   const couponExists = await Coupon.findOne({ name });
   if (couponExists)
     return next(new ApiError(StatusCodes.BAD_REQUEST, "Coupon Already Exists"));
 
-  const newCoupon = await Coupon.create({ name, discount, expiry });
+  const newCoupon = await Coupon.create({ name, discount, expiry, maxUse: maxUse || 1 });
   return res
     .status(StatusCodes.OK)
     .json(
@@ -65,19 +65,19 @@ export const createCoupon = asyncHandler(async (req, res, next) => {
 
 export const updateCoupon = asyncHandler(async (req, res, next) => {
   const couponId = req.params.id;
-  const { name, discount, expiry } = req.body;
+  const { name, discount, expiry, maxUse } = req.body;
 
   const couponExists = await Coupon.findById(couponId);
   if (!couponExists)
     return next(new ApiError(StatusCodes.NOT_FOUND, "Coupon Not Found"));
 
   const nameExists = await Coupon.findOne({ name });
-  if (nameExists)
-    return next(new ApiError(StatusCodes.BAD_REQUEST, "Coupon Already Exists"));
+  if (nameExists && nameExists._id.toString() !== couponId)
+    return next(new ApiError(StatusCodes.BAD_REQUEST, "Coupon Name Already Exists"));
 
   const updatedCoupon = await Coupon.findByIdAndUpdate(
     couponId,
-    { name, discount, expiry },
+    { name, discount, expiry, ...(maxUse && { maxUse }) },
     { new: true },
   );
   return res
